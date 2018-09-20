@@ -1,0 +1,293 @@
+---
+title: "Single vs. Married: What makes people happy before and after marriage?"
+author: "Yaxin Wang"
+output:
+  html_document:
+    df_print: paged
+fontsize: 12pt
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+\newline
+\newline
+\newline
+
+```{r out.width = "50%", fig.align = "center"}
+knitr::include_graphics("/Users/sherrybaby/Desktop/5243 Applied data science/Fall2018_project1/15-15.jpg")
+```
+
+Here is an investigation on what makes people happy before and after the married. The analysis is based on the source 'HappyDB' which is a corpus of 100,000 crowd-sourced happed moments. With the help of text-mining tools in R, we can advanced the state of art of understanding the causes of happiness and figure out their differences between single and married person.
+\newline
+\newline
+\newline
+
+
+```{r,warning=FALSE}
+packages.used=c("tm", "wordcloud", "RColorBrewer", 
+                "dplyr", "tydytext")
+# check packages that need to be installed.
+packages.needed=setdiff(packages.used, 
+                        intersect(installed.packages()[,1], 
+                                  packages.used))
+# install additional packages
+if(length(packages.needed)>0){
+  install.packages(packages.needed, dependencies = TRUE,
+                   repos='http://cran.us.r-project.org')
+}
+
+```
+```{r load libraries, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(tidytext)
+library(DT)
+library(scales)
+library(wordcloud2)
+library(gridExtra)
+library(ngram)
+library(shiny) 
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(formattable)
+library(reshape2)
+library(tidyr)
+```
+
+
+```{r load data, warning=FALSE, message=FALSE}
+#We use the processed data for our analysis and combine it with the demographic information available.
+### Step 1 - Load the processed text data along with demographic information on contributors
+urlfile<-'https://raw.githubusercontent.com/rit-public/HappyDB/master/happydb/data/demographic.csv'
+demo_data <- read_csv(urlfile)
+hm_data <-read_csv("~/Desktop/processed_moments.csv")
+```
+
+
+```{r combining data, warning=FALSE, message=FALSE}
+###We select a subset of the data that satisfies specific row conditions.
+### Combine both the data sets and keep the required columns for analysis
+single_data <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("m", "f")) %>%
+  filter(marital %in% c("single")) %>%
+  filter(parenthood %in% c("n", "y")) %>%
+  filter(reflection_period %in% c("24h", "3m")) %>%
+  mutate(reflection_period = fct_recode(reflection_period, 
+                                        months_3 = "3m", hours_24 = "24h"))
+married_data <- hm_data %>%
+  inner_join(demo_data, by = "wid") %>%
+  select(wid,
+         original_hm,
+         gender, 
+         marital, 
+         parenthood,
+         reflection_period,
+         age, 
+         country, 
+         ground_truth_category, 
+         text) %>%
+  mutate(count = sapply(hm_data$text, wordcount)) %>%
+  filter(gender %in% c("m", "f")) %>%
+  filter(marital %in% c("married")) %>%
+  filter(parenthood %in% c("n", "y")) %>%
+  filter(reflection_period %in% c("24h", "3m")) %>%
+  mutate(reflection_period = fct_recode(reflection_period, 
+                                        months_3 = "3m", hours_24 = "24h"))
+```
+
+## How people answer the question of "Happy Moment"?
+</br>
+HappyDB is a collection of happy moments described by individuals expriencing those moments and they are crowded-sourced via Amazon's Mechanical Turk. This report is aimed at distinguish the happy moments that reflected by single person with those reflected by married person. We want to see that if the things that make people feel happy have changed after they get married. The dataset shows the answers of single person and married person.
+```{r,warning=FALSE, message=FALSE}
+single_data$age<-as.integer(single_data$age)
+married_data$age<-as.integer(married_data$age)
+datatable(single_data[c(2,4,7)])
+datatable(married_data[c(2,4,7)])
+```
+
+```{r,fig.align='center',warning=FALSE}
+alldata<-rbind(single_data,married_data)
+ggplot(alldata, aes(count, marital, color = marital)) +
+  geom_point() + 
+  geom_jitter(width = 0.5, height = 0.3) + 
+  ggtitle("Length of sentences ") +
+  labs(x = "Length of sentences", y = "Marital")
+
+```
+</br>
+As we can see from the plot above, it turns out that when describing the happy moments, married person tend to write a longer sentence than single person.
+```{r bag of words, warning=FALSE, message=FALSE}
+### Create a bag of words using the text data
+bag_of_words_single <-  single_data %>%
+  unnest_tokens(word, text)
+
+word_count_single <- bag_of_words_single %>%
+  count(word, sort = TRUE)
+
+bag_of_words_married <-  married_data %>%
+  unnest_tokens(word, text)
+
+word_count_married <- bag_of_words_married %>%
+  count(word, sort = TRUE)
+```
+
+
+
+```{r bigram, warning=FALSE, message=FALSE}
+### Create bigrams using the text data
+single_bigrams<- single_data %>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_single <- single_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)
+
+married_bigrams <- married_data %>%
+  filter(count != 1) %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+bigram_counts_married <- married_bigrams %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  count(word1, word2, sort = TRUE)
+```
+```{r,eval=FALSE}
+wordcloud(word_count_single$word, word_count_single$n,
+          scale=c(5,0.5),
+          max.words=50,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+wordcloud(word_count_married$word, word_count_married$n,
+          scale=c(4,0.5),
+          max.words=50,
+          min.freq=1,
+          random.order=FALSE,
+          rot.per=0.3,
+          use.r.layout=T,
+          random.color=FALSE,
+          colors=brewer.pal(9,"Blues"))
+
+```
+## When do people feel happy before and after marriage ?
+```{r,eval = FALSE}
+wordcloud2(word_count_single, figPath="Desktop/single.png",size=1,color='random-light',backgroundColor = "dark",
+                                  minRotation = pi/2,maxRotation =pi/2,
+                                  rotateRatio = 0.5)
+
+wordcloud2(word_count_married, figPath="Desktop/family.png",size=1,color='random-light',backgroundColor = "dark",
+                                  minRotation = pi/2,maxRotation =pi/2,
+                                  rotateRatio = 0.5)
+```
+
+
+
+```{r echo= FALSE, results ='asis'}
+library(knitr)
+top10_married<-head(word_count_married,10)
+top10_single<-head(word_count_single,10)
+top10<-data.frame(top10_single,top10_married)
+rank<-c(1:10)
+top10<-cbind(rank,top10)
+names(top10)<-c("Rank","Single","Count_Single","Married","Count_Married")
+```
+</br>
+!["word_single"](/Users/sherrybaby/Desktop/5243 Applied data science/Fall2018_project1/word_single.png){width=50%}!["word_married"](/Users/sherrybaby/Desktop/5243 Applied data science/Fall2018_project1/word_married.png){width=50%}
+</br>
+</br>
+As we can see from the word cloud above, compared the most frequent words appearing in the happy moments of single people to that in the married people, we can find the difference. For single people, the words "friend","time","day" appear really often, that's why these words lay at the center of graph. On the other side, for married people, the words "family","son","home","husband" appear frequently, which means for them the source of happiness tend to comes from their family.
+
+
+## Top 10 Happy Moments 
+```{r}
+formattable(top10, list(
+  word= color_tile("white", "orange"),
+  area(col = c(Count_Single, Count_Married)) ~ normalize_bar("pink", 0.2)))
+
+```
+</br>
+Clearly, friend appears frequently in the happy moments of those single people. It ranks 1st place in the list of top 10 happy moments. It is easy to understand since friend play an important role in everyone's life. People tend to share happiness and sadness with their friends. Thus, friends are most likely to appear in the happy moments of single people. At the meantime, single person can also feel happy when they spend time on games, family, watching TV or movies. Also, the words "finally", "found", "finally" show that single person can gain happiness and the sense of achievement when he or she solved problems. On the otherside, for married people, friends are no more the most important thing in their lives. They enjoy the time spent with their family members, such as their kids, husband or wife. 
+
+
+##How happy moments change with age ?
+```{r,warning=FALSE}
+#invert the age to integer
+bag_of_words_married$age<-as.integer(bag_of_words_married$age)
+bag_of_words_single$age<-as.integer(bag_of_words_single$age)
+#write a function to count the words by age
+count_words<-function(data,age,w){
+  number_words<-nrow(data[data$word==w & data$age==age, ])
+  return(number_words)
+}
+family_married<-c()
+family_single<-c()
+son<-c()
+daughter<-c()
+husband<-c()
+wife<-c()
+friend_married<-c()
+friend_single<-c()
+for(i in 1:100){
+  family_married[i]     <-count_words(bag_of_words_married,i,"family")
+  family_single[i]     <-count_words(bag_of_words_single,i,"family")
+  son[i]        <-count_words(bag_of_words_married,i,"son")
+  daughter[i]   <-count_words(bag_of_words_married,i,"daughter")
+  husband[i]    <-count_words(bag_of_words_married,i,"husband")
+  wife[i]       <-count_words(bag_of_words_married,i, "wife")
+  friend_married[i]     <-count_words(bag_of_words_married,i, "friend")
+  friend_single[i]      <-count_words(bag_of_words_single,i, "friend")
+}
+```
+```{r,fig.align='center',warning=FALSE}
+Age<-c(1:100)
+table_words<-data.frame(Age,family_married,family_single,son,daughter,husband,wife,friend_married,friend_single)
+library(ggplot2)
+library(reshape2)
+
+table_words_long <- melt(table_words, id="Age")  # convert to long format
+
+ggplot(data=table_words_long,
+       aes(x=Age, y=value, colour=variable)) +
+       geom_line()+
+       labs(title="Happy Moments before and after marriage")+
+       xlab("Age")+# for the x axis label
+       ylab("frequency")
+
+
+  
+
+```
+</br>
+From the figure above, we can see that family member are involved in the moments of those married people frequently. Compared to that, friend takes a big part in the happy moment of those single people. On the contrary, it seems that friends are no more the focus of life for the married person. The results could be obvious, Since when people get married, they spend more time being in campanion with their family members, such as their lovers or their kids, therefore, the happy moments reflected by the married people are likely to be the moments that relative to their family members. 
+
+
+##Summary
+For single people, friends mean a lot to them. The happy moments reflected by them are more likely to result from their friends. Besides, they also gain the sense of achievement and happiness when they finish some tasks or watched a statisfying movie. On the country, for the married people, they have switched the focus of life from their friends to their family. They spend more time with family member, such as their kids or their husband or wife.
+
+###reference
+Image from:http://feelrpm.com/heres-your-life-before-and-after-marriage-in-pictures/2/
